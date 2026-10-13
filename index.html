@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="pt-BR">
 <head>
@@ -211,7 +212,7 @@ function compute(cfg,parcelas,lanc,fech){
   const add=(arr,dn,v)=>{const i=dn-start;if(i>=0&&i<H)arr[i]+=v;};
   // quebra dos gastos por categoria, por origem e por categoria do cartão, mês a mês
   const CI=new Map();
-  const bump=(kind,dn,name,v)=>{if(!(v>0))return;const o=ymd(dn),key=o.y*12+o.m;let m=CI.get(key);if(!m){m={cats:{},orgs:{},card:{}};CI.set(key,m);}const t=kind==='c'?m.cats:kind==='o'?m.orgs:m.card;t[name]=(t[name]||0)+v;};
+  const bump=(kind,dn,name,v)=>{if(!(v>0))return;const o=ymd(dn),key=o.y*12+o.m;let m=CI.get(key);if(!m){m={cats:{},orgs:{},card:{},cards:{}};CI.set(key,m);}const t=kind==='c'?m.cats:kind==='o'?m.orgs:kind==='w'?m.cards:m.card;t[name]=(t[name]||0)+v;};
   if(cfg.renda>0)monthly(start,end,cfg.diaSalario,n=>{add(ent,n,cfg.renda);events.push({dn:n,label:'Salário',valor:cfg.renda,kind:'in'});});
   if(cfg.reserva>0)monthly(start,end,cfg.diaSalario,n=>{add(res,n,cfg.reserva);events.push({dn:n,label:'Reserva do mês',valor:cfg.reserva,kind:'res'});});
   (cfg.fixas||[]).forEach(f=>{if(f.valor>0)monthly(start,end,f.dia,n=>{add(fix,n,f.valor);events.push({dn:n,label:f.nome||'Conta fixa',valor:f.valor,kind:'fix'});bump('c',n,f.cat||guessCat(f.nome),f.valor);bump('o',n,'Contas fixas',f.valor);});});
@@ -223,7 +224,7 @@ function compute(cfg,parcelas,lanc,fech){
   }
   (parcelas||[]).forEach(p=>{parcelDates(p).forEach((n0,k)=>{
     const pg=p.pagas&&p.pagas[k],n=pg?(parseISO(pg.d)??n0):n0,v=pg?(Number(pg.v)||0):p.valor;
-    if(n>=start&&n<=end){add(parc,n,v);events.push({dn:n,label:(p.nome||'Parcela')+' '+(k+1)+'/'+p.n+(pg&&Math.abs(v-p.valor)>0.005?' (antecipada)':''),valor:v,kind:'card'});const pc=p.cat||guessCat(p.nome,true);bump('c',n,pc,v);bump('o',n,'Cartão',v);bump('k',n,pc,v);}
+    if(n>=start&&n<=end){add(parc,n,v);events.push({dn:n,label:(p.nome||'Parcela')+' '+(k+1)+'/'+p.n+(pg&&Math.abs(v-p.valor)>0.005?' (antecipada)':''),valor:v,kind:'card'});const pc=p.cat||guessCat(p.nome,true);bump('c',n,pc,v);bump('o',n,'Cartão',v);bump('k',n,pc,v);bump('w',n,(p.cartao||'').trim()||'Sem cartão informado',v);}
   });});
   (lanc||[]).forEach(l=>{
     const n=parseISO(l.data);if(n==null||n<start||n>end)return;
@@ -231,10 +232,10 @@ function compute(cfg,parcelas,lanc,fech){
     const counted=!(n===start&&l.ts&&cfg.saldoTs&&l.ts<=cfg.saldoTs);
     if(l.tipo==='receita'){if(counted){add(ent,n,l.valor);events.push({dn:n,label:l.desc||'Entrada',valor:l.valor,kind:'in'});}}
     else{
-      const fromRes=l.fonte==='reserva';
+      const fromRes=l.fonte==='reserva',fromCard=l.fonte==='cartao';
       if(counted&&!fromRes)add(out,n,l.valor);                    // gasto pago com a reserva não mexe na conta corrente
       if(DAILY.has(l.cat)&&!fromRes)dall[n-start]+=l.valor;
-      if(l.cat!=='Reserva'){bump('c',n,l.cat||'Outros',l.valor);bump('o',n,fromRes?'Reserva de emergência':'Débito/Pix',l.valor);}
+      if(l.cat!=='Reserva'){bump('c',n,l.cat||'Outros',l.valor);bump('o',n,fromRes?'Reserva de emergência':fromCard?'Cartão':'Débito/Pix',l.valor);if(fromCard){bump('k',n,l.cat||'Outros',l.valor);bump('w',n,(l.cartao||'').trim()||'Sem cartão informado',l.valor);}}
     }
   });
   // dias fechados: vale o gasto real informado, em vez do planejado
@@ -253,10 +254,10 @@ function compute(cfg,parcelas,lanc,fech){
   days.forEach((d,i)=>{
     const o=ymd(d.dn),key=o.y*12+o.m;
     let mo=idx.get(key);
-    if(!mo){mo={key,cats:{},orgs:{},card:{},y:o.y,m:o.m,ent:0,fix:0,parc:0,fac:0,res:0,gd:0,out:0,saidas:0,sobra:0,saldoFim:0,i0:i,i1:i};idx.set(key,mo);months.push(mo);}
+    if(!mo){mo={key,cats:{},orgs:{},card:{},cards:{},y:o.y,m:o.m,ent:0,fix:0,parc:0,fac:0,res:0,gd:0,out:0,saidas:0,sobra:0,saldoFim:0,i0:i,i1:i};idx.set(key,mo);months.push(mo);}
     mo.ent+=d.ent;mo.fix+=d.fix;mo.parc+=d.parc;mo.fac+=d.fac;mo.res+=d.res;mo.gd+=d.gd;mo.out+=d.out;mo.saidas+=d.saidas;mo.sobra+=d.liquido;mo.saldoFim=d.saldo;mo.i1=i;
   });
-  months.forEach(mo=>{const x=CI.get(mo.key);if(x){mo.cats=x.cats;mo.orgs=x.orgs;mo.card=x.card;}});
+  months.forEach(mo=>{const x=CI.get(mo.key);if(x){mo.cats=x.cats;mo.orgs=x.orgs;mo.card=x.card;mo.cards=x.cards;}});
   return{start,end,H,days,events,months};
 }
 function minFrom(c,i0,i1){let mn=Infinity,mi=i0;const e=Math.min(i1??c.H-1,c.H-1);for(let i=i0;i<=e;i++){if(c.days[i].saldo<mn){mn=c.days[i].saldo;mi=i;}}return{v:mn,i:mi};}
@@ -335,8 +336,8 @@ const catOpts=sel=>CATS_OUT.map(c=>'<option'+(c===sel?' selected':'')+'>'+c+'</o
 const CATS_IN=['Freelance','Salário extra','13º/Bônus','Outros'];
 const LS_KEY='caixa-do-dia:v1';
 
-const blankCfg=()=>({setup:false,renda:0,diaSalario:5,saldo:0,saldoData:toISO(todayDn()),saldoTs:0,recorrentes:[],orc:{},meta:{alvo:0,atual:0,data:''},gastoDiario:0,reserva:0,folga:100,fac:{valor:0,dia:10,ini:'',fim:''},fixas:[]});
-const normCfg=d=>{const b=blankCfg();const c=Object.assign(b,d||{});c.fac=Object.assign(blankCfg().fac,(d&&d.fac)||{});c.fixas=Array.isArray(c.fixas)?c.fixas:[];c.recorrentes=Array.isArray(c.recorrentes)?c.recorrentes:[];c.orc=(c.orc&&typeof c.orc==='object')?c.orc:{};c.meta=Object.assign({alvo:0,atual:0,data:''},c.meta||{});return c;};
+const blankCfg=()=>({setup:false,renda:0,diaSalario:5,saldo:0,saldoData:toISO(todayDn()),saldoTs:0,recorrentes:[],orc:{},meta:{alvo:0,atual:0,data:''},gastoDiario:0,reserva:0,folga:100,fac:{valor:0,dia:10,ini:'',fim:''},fixas:[],cartoes:[]});
+const normCfg=d=>{const b=blankCfg();const c=Object.assign(b,d||{});c.fac=Object.assign(blankCfg().fac,(d&&d.fac)||{});c.fixas=Array.isArray(c.fixas)?c.fixas:[];c.recorrentes=Array.isArray(c.recorrentes)?c.recorrentes:[];c.cartoes=Array.isArray(c.cartoes)?c.cartoes:[];c.orc=(c.orc&&typeof c.orc==='object')?c.orc:{};c.meta=Object.assign({alvo:0,atual:0,data:''},c.meta||{});return c;};
 function demoData(){
   const t=todayDn(),o=ymd(t);
   return{
@@ -658,7 +659,7 @@ function viewLanc(){
   if(!sorted.length)h+='<div class="empty">Nada lançado ainda. Use o botão "Lançar" para registrar um gasto ou uma entrada. Salário, contas fixas e parcelas já entram sozinhos.</div>';
   else{let last=null;h+=sorted.map(l=>{const n=parseISO(l.data);let o='';if(n!==last){o+='<div class="day">'+rel(n)+'</div>';last=n;}
     const old=n<start;
-    o+='<button class="row tap" data-act="'+(l.cat==='Reserva'?'editresv':'editlanc')+'" data-id="'+esc(l.id)+'" style="'+(old?'opacity:.55':'')+'"><div class="main"><div class="t">'+esc(l.desc||l.cat||'Lançamento')+'</div><div class="m">'+esc(l.cat||'')+(l.fonte==='reserva'?' · paga com a reserva':'')+(old?' · já está no saldo':'')+'</div></div><div class="amt num '+(l.tipo==='receita'?'pos':'')+'">'+(l.tipo==='receita'?'+':'-')+brl(l.valor)+'</div></button>';return o;}).join('');}
+    o+='<button class="row tap" data-act="'+(l.cat==='Reserva'?'editresv':'editlanc')+'" data-id="'+esc(l.id)+'" style="'+(old?'opacity:.55':'')+'"><div class="main"><div class="t">'+esc(l.desc||l.cat||'Lançamento')+'</div><div class="m">'+esc(l.cat||'')+(l.fonte==='reserva'?' · paga com a reserva':'')+(l.fonte==='cartao'?' · cartão'+(l.cartao?' '+esc(l.cartao):''):'')+(old?' · já está no saldo':'')+'</div></div><div class="amt num '+(l.tipo==='receita'?'pos':'')+'">'+(l.tipo==='receita'?'+':'-')+brl(l.valor)+'</div></button>';return o;}).join('');}
   h+='</div><button class="fab" data-act="addlanc" data-tipo="despesa">+ Lançar</button>';
   return h;
 }
@@ -862,9 +863,11 @@ function viewAnalise(){
   // 3. cartão por categoria
   const ck=sortE(m.card),ct=sum(m.card);
   h+='<div class="card"><div class="lbl">Cartão de crédito por categoria</div>';
-  if(!ck.length)h+='<p class="hint" style="margin:6px 0 0">Nenhuma parcela neste mês. Classifique cada compra parcelada na aba Cartão para ver onde o cartão está indo.</p>';
-  else h+='<p class="hint" style="margin:2px 0 6px">'+brl(ct,false)+' em parcelas'+(S.cfg.renda>0?' ('+Math.round(100*ct/S.cfg.renda)+'% da renda)':'')+'.</p>'+barList(ck,ct);
+  if(!ck.length)h+='<p class="hint" style="margin:6px 0 0">Nenhuma compra no cartão neste mês. Classifique as parcelas na aba Cartão e lance as compras no crédito em Lançar (Pago com: Cartão de crédito) para ver onde o cartão está indo.</p>';
+  else h+='<p class="hint" style="margin:2px 0 6px">'+brl(ct,false)+' no cartão (parcelas e compras)'+(S.cfg.renda>0?' ('+Math.round(100*ct/S.cfg.renda)+'% da renda)':'')+'.</p>'+barList(ck,ct);
   h+='</div>';
+  const cw=sortE(m.cards);
+  if(cw.length>1||(cw.length===1&&cw[0][0]!=='Sem cartão informado')){h+='<div class="card"><div class="lbl">Por cartão</div>'+barList(cw,sum(m.cards))+'</div>';}
   // 4. verde
   const t=clamp(now-C.start,0,C.H-1);let neg=-1;for(let k=t;k<C.H;k++){if(C.days[k].saldo<0){neg=k;break;}}
   const full=C.months.slice(1,13),pos=full.filter(x=>x.sobra>=0).length,avg=full.length?full.reduce((a,x)=>a+x.sobra,0)/full.length:0,mn=minFrom(C,t);
@@ -973,10 +976,15 @@ function openSheet(html,onMount){
 }
 const closeSheet=()=>{$('#sheet-root').innerHTML='';};
 
-function lancSheet(id,tipo0,fonte0){
+function cardList(){const set=[];const add=n=>{n=String(n||'').trim();if(n&&!set.some(x=>x.toLowerCase()===n.toLowerCase()))set.push(n);};(S.cfg.cartoes||[]).forEach(add);S.parcelas.forEach(p=>add(p.cartao));S.lanc.forEach(l=>add(l.cartao));return set;}
+function cardSel(id,sel,optional){const cs=cardList();const none=!cs.length;
+  return'<select id="'+id+'">'+(optional?'<option value="">Sem cartão informado</option>':'')+cs.map(c=>'<option value="'+esc(c)+'"'+(sel&&c.toLowerCase()===String(sel).toLowerCase()?' selected':'')+'>'+esc(c)+'</option>').join('')+'<option value="__new"'+((none&&!optional)?' selected':'')+'>+ Novo cartão…</option></select><input type="text" id="'+id+'-novo" placeholder="Nome do cartão (ex.: Nubank, Itaú azul)" style="margin-top:8px;'+((none&&!optional)?'':'display:none')+'">';}
+function cardWire(sh,id){const se=$('#'+id,sh),ni=$('#'+id+'-novo',sh);if(!se||!ni)return;se.onchange=()=>{ni.style.display=se.value==='__new'?'':'none';if(se.value==='__new')ni.focus();};}
+function cardRead(sh,id){const se=$('#'+id,sh);if(!se)return'';let v=se.value==='__new'?($('#'+id+'-novo',sh).value||'').trim():se.value;if(v&&!(S.cfg.cartoes||[]).some(x=>x.toLowerCase()===v.toLowerCase())&&se.value==='__new'){S.cfg.cartoes=(S.cfg.cartoes||[]).concat([v]);save('cfg');}return v;}
+function lancSheet(id,tipo0,fonte0,cartao0){
   if(guardDemo())return;
   const ex=id?S.lanc.find(l=>l.id===id):null;
-  let tipo=ex?ex.tipo:(tipo0||'despesa'),fonte=ex?(ex.fonte==='reserva'?'reserva':'conta'):(fonte0||'conta');
+  let tipo=ex?ex.tipo:(tipo0||'despesa'),fonte=ex?(ex.fonte==='reserva'?'reserva':ex.fonte==='cartao'?'cartao':'conta'):(fonte0||'conta'),cartao=ex?(ex.cartao||''):(cartao0||'');
   const body=()=>{
     const cats=tipo==='receita'?CATS_IN:CATS_OUT;
     return'<h2>'+(ex?'Editar lançamento':'Novo lançamento')+'</h2><form novalidate id="lf">'+
@@ -984,17 +992,20 @@ function lancSheet(id,tipo0,fonte0){
       '<label class="f" for="l-valor">Valor</label><input type="text" id="l-valor" inputmode="decimal" placeholder="0,00" required value="'+(ex?esc(String(ex.valor).replace('.',',')):'')+'">'+
       '<div class="two"><div><label class="f" for="l-data">Data</label><input type="date" id="l-data" required value="'+esc(ex?ex.data:toISO(todayDn()))+'"></div>'+
       '<div><label class="f" for="l-cat">Categoria</label><select id="l-cat">'+cats.map(c=>'<option'+(((ex&&ex.cat)||cats[0])===c?' selected':'')+'>'+c+'</option>').join('')+'</select></div></div>'+
-      (tipo==='despesa'?'<label class="f" for="l-fonte">Pago com</label><select id="l-fonte"><option value="conta"'+(fonte==='conta'?' selected':'')+'>Minha conta (débito, Pix, dinheiro)</option><option value="reserva"'+(fonte==='reserva'?' selected':'')+'>Reserva de emergência</option></select><p class="hint" style="margin:6px 0 0">Diário, Alimentação, Transporte e Lazer descontam do gasto diário previsto. Gasto pago com a reserva sai da reserva, não da conta.</p>':'')+'<label class="f" for="l-desc">Descrição (opcional)</label><input type="text" id="l-desc" placeholder="Ex.: almoço, uber" value="'+esc(ex?ex.desc:'')+'">'+
+      (tipo==='despesa'?'<label class="f" for="l-fonte">Pago com</label><select id="l-fonte"><option value="conta"'+(fonte==='conta'?' selected':'')+'>Minha conta (débito, Pix, dinheiro)</option><option value="cartao"'+(fonte==='cartao'?' selected':'')+'>Cartão de crédito</option><option value="reserva"'+(fonte==='reserva'?' selected':'')+'>Reserva de emergência</option></select>'+(fonte==='cartao'?'<label class="f" for="l-cartao">Qual cartão</label>'+cardSel('l-cartao',cartao,false):'')+'<p class="hint" style="margin:6px 0 0">Diário, Alimentação, Transporte e Lazer descontam do gasto diário previsto. '+(fonte==='cartao'?'Compra no cartão já entra no seu saldo como separada para a fatura. Não lance de novo quando pagar a fatura. ':'')+'Gasto pago com a reserva sai da reserva, não da conta.</p>':'')+'<label class="f" for="l-desc">Descrição (opcional)</label><input type="text" id="l-desc" placeholder="Ex.: almoço, uber" value="'+esc(ex?ex.desc:'')+'">'+
       '<div class="btns"><button class="btn primary" type="submit">Salvar</button>'+(ex?'<button class="btn danger" type="button" data-del>Excluir</button>':'')+'<button class="btn ghost" type="button" data-act="closesheet">Cancelar</button></div></form>';
   };
   openSheet(body(),sh=>{
     const wire=()=>{
+      const fs=$('#l-fonte',sh);if(fs)fs.onchange=()=>{const v=$('#l-valor',sh).value,d=$('#l-data',sh).value,de=$('#l-desc',sh).value,ca=$('#l-cat',sh).value;fonte=fs.value;sh.innerHTML=body();$('#l-valor',sh).value=v;$('#l-data',sh).value=d;$('#l-desc',sh).value=de;$('#l-cat',sh).value=ca;wire();};
+      cardWire(sh,'l-cartao');
       sh.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{const fo=$('#l-fonte',sh);if(fo)fonte=fo.value;const v=$('#l-valor',sh).value,d=$('#l-data',sh).value,de=$('#l-desc',sh).value;tipo=b.dataset.t;sh.innerHTML=body();$('#l-valor',sh).value=v;$('#l-data',sh).value=d;$('#l-desc',sh).value=de;wire();});
       $('#lf',sh).onsubmit=e=>{e.preventDefault();
         const v=num($('#l-valor',sh).value);if(!(v>0)){toast('Informe um valor maior que zero.');return;}
         const data=$('#l-data',sh).value;if(!parseISO(data)){toast('Informe a data.');return;}
         const rec={id:ex?ex.id:uid_(),data,tipo,valor:v,cat:$('#l-cat',sh).value,desc:$('#l-desc',sh).value.trim(),ts:(ex&&ex.ts)||Date.now()};
         const fo=$('#l-fonte',sh);if(tipo==='despesa'&&fo&&fo.value==='reserva')rec.fonte='reserva';
+        if(tipo==='despesa'&&fo&&fo.value==='cartao'){const cn=cardRead(sh,'l-cartao');if(!cn){toast('Informe qual cartão.');return;}rec.fonte='cartao';rec.cartao=cn;}
         if(ex)S.lanc=S.lanc.map(l=>l.id===ex.id?rec:l);else S.lanc.push(rec);
         save('lanc');closeSheet();rerender();toast(ex?'Lançamento atualizado.':'Lançado.');};
       const del=sh.querySelector('[data-del]');
@@ -1064,20 +1075,20 @@ function parcSheet(id){
   const ex=id?S.parcelas.find(p=>p.id===id):null;
   openSheet('<h2>'+(ex?'Editar parcelamento':'Novo parcelamento')+'</h2><form novalidate id="pf">'+
     '<label class="f" for="p-nome" style="margin-top:14px">O que foi comprado</label><input type="text" id="p-nome" required placeholder="Ex.: celular" value="'+esc(ex?ex.nome:'')+'">'+
-    '<label class="f" for="p-cartao">Cartão (opcional)</label><input type="text" id="p-cartao" placeholder="Ex.: cartão azul" value="'+esc(ex?ex.cartao:'')+'">'+
+    '<label class="f" for="p-cartao">Cartão (opcional)</label>'+cardSel('p-cartao',ex?ex.cartao:'',true)+
     '<label class="f" for="p-cat">Categoria da compra</label><select id="p-cat">'+catOpts(ex?(ex.cat||guessCat(ex.nome,true)):'Compras')+'</select>'+
     '<div class="two"><div><label class="f" for="p-data">Data da 1ª parcela</label><input type="date" id="p-data" required value="'+esc(ex?ex.primeira:'')+'"></div><div><label class="f" for="p-n">Nº de parcelas</label><input type="number" id="p-n" min="1" max="72" required value="'+(ex?ex.n:'')+'"></div></div>'+
     '<div class="two"><div><label class="f" for="p-valor">Valor da parcela</label><input type="text" id="p-valor" inputmode="decimal" placeholder="0,00" value="'+(ex?esc(String(ex.valor).replace('.',',')):'')+'"></div><div><label class="f" for="p-total">Ou o total da compra</label><input type="text" id="p-total" inputmode="decimal" placeholder="0,00"></div></div>'+
     '<p class="hint" style="margin:10px 0 0">Data da 1ª parcela: o dia em que ela sai da conta (vencimento da fatura). Para parcelamentos antigos, use a data da 1ª parcela mesmo que seja no passado. Informe a parcela ou o total.</p>'+
     '<div class="btns"><button class="btn primary" type="submit">Salvar</button>'+(ex?'<button class="btn danger" type="button" data-del>Excluir</button>':'')+'<button class="btn ghost" type="button" data-act="closesheet">Cancelar</button></div></form>',sh=>{
-      const vi=$('#p-valor',sh),ti=$('#p-total',sh),ni=$('#p-n',sh);
+      const vi=$('#p-valor',sh),ti=$('#p-total',sh),ni=$('#p-n',sh);cardWire(sh,'p-cartao');
       if(!ex){let touched=false;$('#p-cat',sh).onchange=()=>{touched=true;};$('#p-nome',sh).addEventListener('input',e=>{if(!touched)$('#p-cat',sh).value=guessCat(e.target.value,true);});}
       ti.oninput=()=>{const n=Math.max(1,parseInt(ni.value)||1);const t=num(ti.value);if(t>0)vi.value=(Math.round(t/n*100)/100).toFixed(2).replace('.',',');};
       $('#pf',sh).onsubmit=e=>{e.preventDefault();
         const n=parseInt(ni.value);let v=num(vi.value);const t=num(ti.value);if(!(v>0)&&t>0&&n>0)v=Math.round(t/n*100)/100;
         if(!(v>0)){toast('Informe o valor da parcela ou o total.');return;}
         if(!(n>=1)){toast('Informe o número de parcelas.');return;}
-        const rec={id:ex?ex.id:uid_(),nome:$('#p-nome',sh).value.trim(),cartao:$('#p-cartao',sh).value.trim(),cat:$('#p-cat',sh).value,primeira:$('#p-data',sh).value,n,valor:v};
+        const rec={id:ex?ex.id:uid_(),nome:$('#p-nome',sh).value.trim(),cartao:cardRead(sh,'p-cartao'),cat:$('#p-cat',sh).value,primeira:$('#p-data',sh).value,n,valor:v};
         if(ex&&ex.pagas)rec.pagas=ex.pagas;
         if(!parseISO(rec.primeira)){toast('Informe a data da 1ª parcela.');return;}
         if(ex)S.parcelas=S.parcelas.map(p=>p.id===ex.id?rec:p);else S.parcelas.push(rec);
